@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Jet Laser</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <header id="top-bar" aria-label="Game controls summary">
+      <div class="brand">
+        <span class="brand-bolt">⚡</span>
+        <span class="brand-title">JET LASER</span>
+        <span id="release-version-pill" class="version-pill">v1.0.0</span>
+        <span id="active-pilot-pill" class="pilot-pill hidden">Pilot: —</span>
+      </div>
+
+      <div class="key-hints">
+        <span><kbd>◀</kbd><kbd>▶</kbd> Move</span>
+        <span><kbd>▲</kbd> Jetpack</span>
+        <span><kbd>Space</kbd> Laser</span>
+        <span><kbd>P</kbd> Planet</span>
+        <span><kbd>1-5</kbd> Level</span>
+        <span><kbd>O</kbd> Pilot</span>
+        <span><kbd>R</kbd> Restart</span>
+        <span><kbd>M</kbd> Mute</span>
+      </div>
+    </header>
+
+    <main id="stage-wrap">
+      <canvas id="game-canvas" width="960" height="540"></canvas>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
