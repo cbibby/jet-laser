@@ -184,4 +184,40 @@ export class SoundEngine {
     this.playTone({ freq: 440, endFreq: 1180, duration: 0.11, type: "sawtooth", gain: 0.09 });
     this.playTone({ freq: 780, endFreq: 1520, duration: 0.09, type: "triangle", gain: 0.08 });
   }
+
+  playRobotLaser() {
+    // Sci-fi robot guard laser pew!
+    this.playTone({ freq: 820, endFreq: 240, duration: 0.12, type: "square", gain: 0.07 });
+  }
+
+  playPistonRise() {
+    // Hydraulic floor piston rising whoosh!
+    this.playTone({ freq: 130, endFreq: 390, duration: 0.22, type: "sawtooth", gain: 0.08 });
+  }
+
+  playSquishSlam() {
+    // Heavy metallic roof slam / squish crunch!
+    this.playTone({ freq: 165, endFreq: 48, duration: 0.22, type: "square", gain: 0.13 });
+    this.playTone({ freq: 310, endFreq: 95, duration: 0.15, type: "sawtooth", gain: 0.09 });
+  }
+
+  playFireWhoosh() {
+    // Roaring cartoon 5-second flame jet whoosh!
+    this.playTone({ freq: 195, endFreq: 85, duration: 0.28, type: "sawtooth", gain: 0.1 });
+    this.playTone({ freq: 360, endFreq: 140, duration: 0.22, type: "triangle", gain: 0.08 });
+  }
+
+  playTimeFreeze() {
+    this.playTone({ freq: 920, endFreq: 210, duration: 0.3, type: "sine", gain: 0.12 });
+    this.playTone({ freq: 640, endFreq: 160, duration: 0.28, type: "triangle", gain: 0.09 });
+  }
+
+  playTimeResume() {
+    // Crisp chrono snap when time unfreezes!
+    this.playTone({ freq: 260, endFreq: 880, duration: 0.18, type: "sine", gain: 0.1 });
+  }
+
+  playBossAimShot() {
+    this.playTone({ freq: 520, endFreq: 175, duration: 0.15, type: "sawtooth", gain: 0.09 });
+  }
 }

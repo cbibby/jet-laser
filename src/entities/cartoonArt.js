@@ -1708,28 +1708,36 @@ export function drawPetalUrchin(ctx, { x, y, w = 44, h = 44, facing = -1, timeSe
  * Cross-domed 4-eyed sky jellyfish/squid with a V-pincer claw arm on the left,
  * a tall feeler tentacle on the right, and 4 long undulating tentacles below!
  */
-export function drawTentacleJelly(ctx, { x, y, w = 58, h = 68, facing = -1, timeSec = 0, hurtFlash = false }) {
+export function drawTentacleJelly(ctx, { x, y, w = 58, h = 96, facing = -1, timeSec = 0, hurtFlash = false }) {
   ctx.save();
   const hover = Math.sin(timeSec * 4.8 + x * 0.03) * 4.5;
   const cx = x + w / 2;
   const cy = y + 24 + hover;
   ctx.translate(cx, cy);
 
-  // 4 Flowing Lower Ribbon Tentacles
-  const tentacleXs = [-11, -3.5, 4, 11.5];
+  const tentacleXs = [-12, -4, 4, 12];
   tentacleXs.forEach((tx, idx) => {
-    const sw1 = Math.sin(timeSec * 7 + idx * 1.4) * 6;
-    const sw2 = Math.cos(timeSec * 6 + idx * 1.9) * 7;
+    const sw1 = Math.sin(timeSec * 6.8 + idx * 1.35) * 9;
+    const sw2 = Math.cos(timeSec * 5.6 + idx * 1.85) * 10;
+    const sw3 = Math.sin(timeSec * 7.4 + idx * 2.2) * 8;
+    const tipCurl = (idx < 2 ? -1 : 1) * 4.5 + sw3 * 0.65;
+
+    const traceLongTentacle = () => {
+      ctx.beginPath();
+      ctx.moveTo(tx, 7);
+      ctx.bezierCurveTo(tx + sw1, 24, tx - sw2, 43, tx + sw3 * 0.6, 58);
+      ctx.quadraticCurveTo(tx + sw2 * 0.7, 69, tx + tipCurl, 76);
+    };
+
     ctx.strokeStyle = INK;
-    ctx.lineWidth = 6.2;
+    ctx.lineWidth = 6.4;
     ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(tx, 7);
-    ctx.bezierCurveTo(tx + sw1, 18, tx - sw2, 28, tx + sw1 * 0.7, 38);
+    traceLongTentacle();
     ctx.stroke();
 
     ctx.strokeStyle = hurtFlash ? "#ffffff" : idx % 2 === 0 ? "#22d3ee" : "#a855f7";
-    ctx.lineWidth = 3.2;
+    ctx.lineWidth = 3.3;
+    traceLongTentacle();
     ctx.stroke();
   });
 
@@ -1748,13 +1756,14 @@ export function drawTentacleJelly(ctx, { x, y, w = 58, h = 68, facing = -1, time
   ctx.fill();
   ctx.stroke();
 
-  const whipWave = Math.cos(timeSec * 6.5) * 4.5;
+  // Right Extra-Long Whip-Tentacle Arm reaching upward!
+  const whipWave = Math.cos(timeSec * 6.5) * 5.5;
   ctx.strokeStyle = INK;
   ctx.lineWidth = 5.6;
   ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(16, 3);
-  ctx.bezierCurveTo(26, 2, 27 + whipWave, -12, 22 + whipWave * 0.6, -24);
+  ctx.bezierCurveTo(28, 2, 29 + whipWave, -15, 23 + whipWave * 0.7, -33);
   ctx.stroke();
   ctx.strokeStyle = hurtFlash ? "#ffffff" : "#38bdf8";
   ctx.lineWidth = 2.8;
@@ -1802,7 +1811,18 @@ export function drawTentacleJelly(ctx, { x, y, w = 58, h = 68, facing = -1, time
  */
 export function drawSnooloBoss(
   ctx,
-  { x, y, w = 184, h = 166, facing = -1, timeSec = 0, hurtFlash = false, jumpState = "PATROL" }
+  {
+    x,
+    y,
+    w = 184,
+    h = 166,
+    facing = -1,
+    aimAngle = null,
+    aiCallout = null,
+    timeSec = 0,
+    hurtFlash = false,
+    jumpState = "PATROL",
+  }
 ) {
   ctx.save();
   const isCrouching = jumpState === "CROUCH";
@@ -1823,20 +1843,21 @@ export function drawSnooloBoss(
   }
 
   // Boss Aura Glow
-  ctx.shadowColor = "rgba(244, 63, 94, 0.45)";
+  ctx.shadowColor = "rgba(244, 63, 94, 0.52)";
   ctx.shadowBlur = 18;
 
-  // Crouch / Jump Warning Callout!
-  if (isCrouching) {
+  // Crouch / Smart-Brain Tactical Callout!
+  const overheadLabel = isCrouching ? "💢 SNOOLO JUMP!" : aiCallout;
+  if (overheadLabel) {
     ctx.save();
     ctx.shadowBlur = 0;
     ctx.fillStyle = "#fde047";
     ctx.strokeStyle = INK;
     ctx.lineWidth = 3;
-    ctx.font = "900 14px -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.font = "900 13px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "center";
-    ctx.strokeText("💢 SNOOLO JUMP!", 0, bodyY - 38);
-    ctx.fillText("💢 SNOOLO JUMP!", 0, bodyY - 38);
+    ctx.strokeText(overheadLabel, 0, bodyY - 38);
+    ctx.fillText(overheadLabel, 0, bodyY - 38);
     ctx.restore();
   }
 
@@ -1954,19 +1975,34 @@ export function drawSnooloBoss(
     ctx.fill();
     ctx.clip();
 
-    // Big Fierce Dark Iris tracking the player!
-    const px = ex + facing * 5.5;
-    const py = ey + 10;
+    // Big Fierce Dark Iris tracking the player in full 2D (aims right at you!)
+    const lookDx = aimAngle !== null ? Math.cos(aimAngle) * 7 : facing * 5.5;
+    const lookDy = aimAngle !== null ? Math.sin(aimAngle) * 4.2 : 0;
+    const px = ex + lookDx;
+    const py = ey + 10 + lookDy;
     ctx.fillStyle = "#0f172a";
     ctx.beginPath();
     ctx.ellipse(px, py, 15, 11, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Glowing fiery red-gold pupil glint
+    // Glowing fiery red-gold target-lock pupil glint
+    const glintX = px + (aimAngle !== null ? Math.cos(aimAngle) * 3 : facing * 2.5);
+    const glintY = py + (aimAngle !== null ? Math.sin(aimAngle) * 2 : 0);
     ctx.fillStyle = "#facc15";
     ctx.beginPath();
-    ctx.arc(px + facing * 2.5, py, 4.5, 0, Math.PI * 2);
+    ctx.arc(glintX, glintY, 4.8, 0, Math.PI * 2);
     ctx.fill();
+
+    if (aimAngle !== null) {
+      ctx.strokeStyle = "#fb7185";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(glintX - 6.5, glintY);
+      ctx.lineTo(glintX + 6.5, glintY);
+      ctx.moveTo(glintX, glintY - 6.5);
+      ctx.lineTo(glintX, glintY + 6.5);
+      ctx.stroke();
+    }
 
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
@@ -3133,6 +3169,680 @@ export function drawMarsBike(
     ctx.strokeText(resolvedBanner, bannerX, bannerY);
     ctx.fillText(resolvedBanner, bannerX, bannerY);
   }
+
+  ctx.restore();
+}
+
+/**
+ * A big flat-topped cratered space meteor gliding back and forth like a ferry,
+ * trailing flickering fiery flames behind its direction of travel!
+ */
+export function drawMovingMeteorPlatform(
+  ctx,
+  { x, y, w = 136, h = 28, dx = 0, timeSec = 0 }
+) {
+  ctx.save();
+
+  const dir = dx < -0.05 ? -1 : 1; // +1 moving right (flames trail left), -1 moving left (flames trail right)
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const flicker1 = Math.sin(timeSec * 24) * 5;
+  const flicker2 = Math.cos(timeSec * 19) * 4;
+
+  // Streaming fiery comet tail behind the moving meteor!
+  const tailBaseX = dir > 0 ? x + 14 : x + w - 14;
+  const tailSign = dir > 0 ? -1 : 1;
+
+  ctx.fillStyle = "#f43f5e";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(tailBaseX, y + 3);
+  ctx.lineTo(tailBaseX + tailSign * (34 + flicker1), y - 2);
+  ctx.lineTo(tailBaseX + tailSign * (22 + flicker2), cy);
+  ctx.lineTo(tailBaseX + tailSign * (38 - flicker1 * 0.6), y + h + 4);
+  ctx.lineTo(tailBaseX, y + h - 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#fb923c";
+  ctx.beginPath();
+  ctx.moveTo(tailBaseX, y + 6);
+  ctx.lineTo(tailBaseX + tailSign * (24 + flicker2), y + 3);
+  ctx.lineTo(tailBaseX + tailSign * 15, cy);
+  ctx.lineTo(tailBaseX + tailSign * (26 + flicker1 * 0.5), y + h - 1);
+  ctx.lineTo(tailBaseX, y + h - 5);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#fef08a";
+  ctx.beginPath();
+  ctx.arc(tailBaseX + tailSign * (41 + ((timeSec * 30) % 9)), y + 4, 2.6, 0, Math.PI * 2);
+  ctx.arc(tailBaseX + tailSign * (37 + (((timeSec + 0.4) * 26) % 10)), y + h - 3, 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Giant Chunky Meteor Rock Body (flat walkable top at y, rugged rounded asteroid belly below!)
+  const rockGrad = ctx.createLinearGradient(x, y, x, y + h + 8);
+  rockGrad.addColorStop(0, "#d97706");
+  rockGrad.addColorStop(0.45, "#92400e");
+  rockGrad.addColorStop(1, "#451a03");
+  ctx.fillStyle = rockGrad;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(x + 8, y);
+  ctx.lineTo(x + w - 8, y);
+  ctx.quadraticCurveTo(x + w + 3, y + 4, x + w - 2, y + h * 0.68);
+  ctx.quadraticCurveTo(x + w * 0.78, y + h + 7, x + w * 0.52, y + h + 4);
+  ctx.quadraticCurveTo(x + w * 0.24, y + h + 8, x + 3, y + h * 0.7);
+  ctx.quadraticCurveTo(x - 3, y + 5, x + 8, y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Glowing golden-amber walkable meteor crust along top edge!
+  ctx.fillStyle = "#fbbf24";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x + 6, y, w - 12, 6.5, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Cartoon Meteor Craters across the rock belly
+  ctx.fillStyle = "#451a03";
+  ctx.strokeStyle = "#78350f";
+  ctx.lineWidth = 1.4;
+  [
+    { ox: 0.22, oy: 0.58, rx: 8, ry: 4.5 },
+    { ox: 0.52, oy: 0.66, rx: 10, ry: 5 },
+    { ox: 0.79, oy: 0.55, rx: 7, ry: 4 },
+  ].forEach((cr) => {
+    ctx.beginPath();
+    ctx.ellipse(x + w * cr.ox, y + h * cr.oy, cr.rx, cr.ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  ctx.restore();
+}
+
+/**
+ * Armored chrome-and-cobalt security bot hovering on twin jet-thruster pods,
+ * with blinking radar beacon, glowing crimson visor eye & under-slung laser cannon!
+ */
+export function drawFlyingRobotGuard(
+  ctx,
+  { x, y, w = 60, h = 54, facing = -1, aimAngle = null, timeSec = 0, hurtFlash = false }
+) {
+  ctx.save();
+
+  const cx = x + w / 2;
+  const dir = facing >= 0 ? 1 : -1;
+  const jetFlicker = Math.sin(timeSec * 32) * 3.5;
+  const beaconPulse = 0.5 + 0.5 * Math.sin(timeSec * 10);
+
+  // 1. Twin Side Hover-Jet Thruster Flames (shooting downward to keep the robot airborne!)
+  [-21, 21].forEach((ox, idx) => {
+    const jx = cx + ox;
+    const jy = y + 32;
+    const fLen = 13 + (idx === 0 ? jetFlicker : -jetFlicker * 0.8);
+
+    ctx.fillStyle = "#0ea5e9";
+    ctx.beginPath();
+    ctx.moveTo(jx - 5.5, jy);
+    ctx.lineTo(jx, jy + fLen + 4);
+    ctx.lineTo(jx + 5.5, jy);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = "#fde047";
+    ctx.beginPath();
+    ctx.moveTo(jx - 3, jy);
+    ctx.lineTo(jx, jy + fLen * 0.65);
+    ctx.lineTo(jx + 3, jy);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  // 2. Shoulder Struts + Twin Hover-Thruster Pods
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.4;
+  ctx.fillStyle = hurtFlash ? "#ffffff" : "#334155";
+  [-21, 21].forEach((ox) => {
+    const px = cx + ox - 7;
+    const py = y + 17;
+    // Strut bar
+    ctx.fillRect(cx + (ox < 0 ? -15 : 7), y + 21, 8, 5);
+    ctx.strokeRect(cx + (ox < 0 ? -15 : 7), y + 21, 8, 5);
+
+    // Thruster pod cylinder
+    ctx.beginPath();
+    ctx.roundRect(px, py, 14, 16, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // Cyan intake stripe
+    ctx.fillStyle = hurtFlash ? "#ffffff" : "#38bdf8";
+    ctx.fillRect(px + 2, py + 5, 10, 3.5);
+    ctx.fillStyle = hurtFlash ? "#ffffff" : "#334155";
+  });
+
+  // 3. Blinking Security Radar Antenna on top of helmet
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(cx, y + 9);
+  ctx.lineTo(cx, y + 2);
+  ctx.stroke();
+
+  ctx.fillStyle = beaconPulse > 0.5 ? "#f43f5e" : "#fbbf24";
+  ctx.beginPath();
+  ctx.arc(cx, y + 2, 3.8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // 4. Armored Cartoon Robot Body & Domed Guard Helmet
+  const bodyGrad = ctx.createLinearGradient(cx - 15, y + 8, cx + 15, y + 40);
+  if (hurtFlash) {
+    bodyGrad.addColorStop(0, "#ffffff");
+    bodyGrad.addColorStop(1, "#e2e8f0");
+  } else {
+    bodyGrad.addColorStop(0, "#e2e8f0");
+    bodyGrad.addColorStop(0.55, "#94a3b8");
+    bodyGrad.addColorStop(1, "#475569");
+  }
+  ctx.fillStyle = bodyGrad;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.roundRect(cx - 15, y + 8, 30, 30, [11, 11, 7, 7]);
+  ctx.fill();
+  ctx.stroke();
+
+  // Blue Guard Trim Collar / Chest Badge Plate
+  ctx.fillStyle = hurtFlash ? "#ffffff" : "#2563eb";
+  ctx.beginPath();
+  ctx.roundRect(cx - 11, y + 26, 22, 8, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Gold Guard Badge Star Dot
+  ctx.fillStyle = "#facc15";
+  ctx.beginPath();
+  ctx.arc(cx, y + 30, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 5. Dark Tactical Visor Slot + Glowing Red Laser-Scanner Eye!
+  ctx.fillStyle = "#0f172a";
+  ctx.beginPath();
+  ctx.roundRect(cx - 11, y + 13, 22, 9.5, 4);
+  ctx.fill();
+
+  const eyeX = cx + dir * 4;
+  ctx.fillStyle = "#ef4444";
+  ctx.beginPath();
+  ctx.arc(eyeX, y + 17.8, 3.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#fecaca";
+  ctx.beginPath();
+  ctx.arc(eyeX + dir * 0.8, y + 17, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 6. Under-Slung Pivoting Cartoon Laser Cannon!
+  const gunAngle =
+    aimAngle !== null ? aimAngle : dir > 0 ? 0.32 : Math.PI - 0.32;
+  ctx.save();
+  ctx.translate(cx, y + 40);
+  ctx.rotate(gunAngle);
+
+  // Turret mount ball
+  ctx.fillStyle = hurtFlash ? "#ffffff" : "#1e293b";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Cannon barrel
+  ctx.fillStyle = hurtFlash ? "#ffffff" : "#475569";
+  ctx.beginPath();
+  ctx.roundRect(2, -3.5, 14, 7, 2.5);
+  ctx.fill();
+  ctx.stroke();
+
+  // Glowing crimson laser muzzle tip
+  ctx.fillStyle = "#f43f5e";
+  ctx.beginPath();
+  ctx.arc(16.5, 0, 3.2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.restore();
+  ctx.restore();
+}
+
+/**
+ * Backdrop draws the dark sci-fi interior tunnel wall behind the player;
+ * Foreground draws the reinforced crush ceiling & hydraulic rising floor piston plates!
+ */
+export function drawSquishHallBackdrop(ctx, hall, timeSec = 0) {
+  ctx.save();
+  const roofBottomY = hall.roofY + hall.roofH;
+  const hallH = hall.baseY - roofBottomY;
+
+  // Interior dark armored hall backdrop
+  const bgGrad = ctx.createLinearGradient(hall.x, roofBottomY, hall.x, hall.baseY);
+  bgGrad.addColorStop(0, "#120d24");
+  bgGrad.addColorStop(0.5, "#1d1536");
+  bgGrad.addColorStop(1, "#140f28");
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(hall.x, roofBottomY, hall.w, hallH + 105);
+
+  // Vertical steel rib dividers matching each floor piston zone
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.22)";
+  ctx.lineWidth = 2;
+  hall.segments.forEach((seg, idx) => {
+    if (idx > 0) {
+      ctx.beginPath();
+      ctx.moveTo(seg.x, roofBottomY);
+      ctx.lineTo(seg.x, hall.baseY);
+      ctx.stroke();
+    }
+
+    // Subtle upward warning arrows on the back wall of active/rising zones!
+    const isHot = seg.state === "WARNING" || seg.state === "RISING" || seg.state === "TOP";
+    const pulse = isHot ? 0.45 + 0.35 * Math.sin(timeSec * 20) : 0.12;
+    ctx.fillStyle = isHot ? `rgba(244, 63, 94, ${pulse})` : `rgba(251, 191, 36, ${pulse})`;
+    const midX = seg.x + seg.w / 2;
+    const midY = roofBottomY + hallH * 0.52;
+    ctx.beginPath();
+    ctx.moveTo(midX, midY - 14);
+    ctx.lineTo(midX + 13, midY + 6);
+    ctx.lineTo(midX + 5, midY + 6);
+    ctx.lineTo(midX + 5, midY + 16);
+    ctx.lineTo(midX - 5, midY + 16);
+    ctx.lineTo(midX - 5, midY + 6);
+    ctx.lineTo(midX - 13, midY + 6);
+    ctx.closePath();
+    ctx.fill();
+  });
+
+  // Entrance & Exit archway pillars (left & right frames of the 400m hall)
+  ctx.fillStyle = "#334155";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.fillRect(hall.x, roofBottomY, 8, hallH);
+  ctx.strokeRect(hall.x, roofBottomY, 8, hallH);
+  ctx.fillRect(hall.x + hall.w - 8, roofBottomY, 8, hallH);
+  ctx.strokeRect(hall.x + hall.w - 8, roofBottomY, 8, hallH);
+
+  ctx.restore();
+}
+
+export function drawSquishHallForeground(ctx, hall, timeSec = 0) {
+  ctx.save();
+  const roofBottomY = hall.roofY + hall.roofH;
+
+  // 1. Segmented Hydraulic Rising Floor Plates!
+  hall.segments.forEach((seg) => {
+    const isWarn = seg.state === "WARNING";
+    const isRising = seg.state === "RISING" || seg.state === "TOP";
+    const shakeX = isWarn ? Math.sin(timeSec * 55) * 2.5 : 0;
+    const sx = seg.x + shakeX;
+    const sy = seg.y;
+    const pistonDepth = Math.max(0, hall.bottomY - (sy + 24));
+
+    // Deep housing pit & twin telescopic chrome hydraulic piston rods below the rising plate!
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(seg.x + 2, hall.baseY + 16, seg.w - 4, hall.bottomY - (hall.baseY + 16));
+
+    if (pistonDepth > 2) {
+      [seg.x + 24, seg.x + seg.w - 24].forEach((rodX) => {
+        // Outer cylinder sleeve
+        ctx.fillStyle = "#475569";
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 2;
+        const lowerY = Math.min(hall.bottomY - 12, Math.max(sy + 24, hall.baseY + 10));
+        ctx.fillRect(rodX - 8, lowerY, 16, hall.bottomY - lowerY);
+        ctx.strokeRect(rodX - 8, lowerY, 16, hall.bottomY - lowerY);
+
+        // Inner gleaming chrome hydraulic shaft!
+        const rodGrad = ctx.createLinearGradient(rodX - 5, sy + 22, rodX + 5, sy + 22);
+        rodGrad.addColorStop(0, "#f8fafc");
+        rodGrad.addColorStop(0.5, "#cbd5e1");
+        rodGrad.addColorStop(1, "#64748b");
+        ctx.fillStyle = rodGrad;
+        ctx.fillRect(rodX - 5, sy + 22, 10, Math.max(4, lowerY - (sy + 22) + 8));
+        ctx.strokeRect(rodX - 5, sy + 22, 10, Math.max(4, lowerY - (sy + 22) + 8));
+      });
+    }
+
+    // Chunky Armored Floor Piston Block (`24px` thick steel deck + base skirt)
+    ctx.fillStyle = isRising ? "#7f1d1d" : "#1e293b";
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.roundRect(sx + 1, sy, seg.w - 2, 24, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Glowing Pressure-Plate Top Strip (cyan idle -> flashing gold warning -> hot crimson rising!)
+    const topStripColor = isRising
+      ? "#f43f5e"
+      : isWarn
+        ? Math.sin(timeSec * 36) > 0
+          ? "#fde047"
+          : "#ef4444"
+        : "#38bdf8";
+    ctx.fillStyle = topStripColor;
+    ctx.fillRect(sx + 3, sy + 1, seg.w - 6, 5);
+
+    // Hazard diagonal stripes along front face of the piston block
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(sx + 4, sy + 8, seg.w - 8, 12);
+    ctx.clip();
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(sx + 4, sy + 8, seg.w - 8, 12);
+    ctx.fillStyle = isRising ? "#fb7185" : "#facc15";
+    for (let hx = sx - 12; hx < sx + seg.w + 16; hx += 18) {
+      ctx.beginPath();
+      ctx.moveTo(hx, sy + 20);
+      ctx.lineTo(hx + 8, sy + 20);
+      ctx.lineTo(hx + 14, sy + 8);
+      ctx.lineTo(hx + 6, sy + 8);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    if (isWarn) {
+      ctx.font = "800 10px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fde047";
+      ctx.fillText("⚠️ UP!", sx + seg.w / 2, sy - 6);
+    } else if (seg.slamFlashTimer > 0) {
+      ctx.font = "800 11px system-ui, -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fb7185";
+      ctx.fillText("💥 SQUISH!", sx + seg.w / 2, roofBottomY + 20);
+    }
+  });
+
+  // 2. Heavy Reinforced 400m Cartoon Hall Roof Girder Overhead!
+  const roofGrad = ctx.createLinearGradient(hall.x, hall.roofY, hall.x, roofBottomY);
+  roofGrad.addColorStop(0, "#334155");
+  roofGrad.addColorStop(1, "#0f172a");
+  ctx.fillStyle = roofGrad;
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.roundRect(hall.x, hall.roofY, hall.w, hall.roofH, 4);
+  ctx.fill();
+  ctx.stroke();
+
+  // Walkable golden-amber roof trim on top
+  ctx.fillStyle = "#f59e0b";
+  ctx.fillRect(hall.x + 2, hall.roofY + 1, hall.w - 4, 5);
+
+  // Caution crush-teeth / bumper strip along the ceiling underside (`roofBottomY`)
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(hall.x + 4, roofBottomY - 8, hall.w - 8, 7);
+  ctx.clip();
+  ctx.fillStyle = "#facc15";
+  for (let rx = hall.x; rx < hall.x + hall.w + 20; rx += 22) {
+    ctx.fillRect(rx, roofBottomY - 8, 11, 7);
+  }
+  ctx.restore();
+
+  // Industrial Cartoon Title Plate centered on the Hall Roof Girder
+  const midHallX = hall.x + hall.w / 2;
+  ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+  ctx.strokeStyle = "#f59e0b";
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.roundRect(midHallX - 82, hall.roofY + 7, 164, 16, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#fde047";
+  ctx.font = "800 10px system-ui, -apple-system, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(`⚠️ ${Math.round(hall.w)}m SQUISH HALL`, midHallX, hall.roofY + 18.5);
+
+  ctx.restore();
+}
+
+/**
+ * Flush burner grate mounted on a platform that flickers a warning and blasts
+ * a roaring multi-layered cartoon pillar of fire upward every 5 seconds!
+ */
+export function drawPopupFireJet(
+  ctx,
+  { x, y, w = 64, h = 92, extendRatio = 0, isWarning = false, timeSec = 0 }
+) {
+  ctx.save();
+  const baseY = y + h;
+  const cx = x + w / 2;
+  const flameH = Math.max(0, (h - 8) * extendRatio);
+
+  // 1. Roaring Cartoon Fire Pillar shooting upward out of the burner grate!
+  if (flameH > 3) {
+    const sway1 = Math.sin(timeSec * 28) * 5.5;
+    const sway2 = Math.cos(timeSec * 23) * 4.5;
+    const topY = baseY - 6 - flameH;
+
+    // Warm fiery glow aura
+    ctx.save();
+    ctx.shadowColor = "rgba(249, 115, 22, 0.65)";
+    ctx.shadowBlur = 16;
+
+    // Outer crimson-red cartoon flame tongues
+    ctx.fillStyle = "#ef4444";
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 2.4;
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(x + 8, baseY - 6);
+    ctx.quadraticCurveTo(x + 2 + sway2 * 0.5, baseY - flameH * 0.48, x + 13 + sway1 * 0.5, topY + flameH * 0.24);
+    ctx.lineTo(x + 19, baseY - flameH * 0.56);
+    ctx.quadraticCurveTo(cx - 8 + sway1, topY + 6, cx + sway1 * 0.7, topY);
+    ctx.quadraticCurveTo(cx + 9 + sway2, topY + 8, x + w - 19, baseY - flameH * 0.56);
+    ctx.lineTo(x + w - 13 + sway2 * 0.5, topY + flameH * 0.24);
+    ctx.quadraticCurveTo(x + w - 2 + sway1 * 0.4, baseY - flameH * 0.48, x + w - 8, baseY - 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // Middle blazing orange flame body
+    ctx.fillStyle = "#fb923c";
+    ctx.beginPath();
+    ctx.moveTo(x + 14, baseY - 6);
+    ctx.quadraticCurveTo(x + 11 + sway1 * 0.4, baseY - flameH * 0.45, cx + sway2 * 0.6, topY + flameH * 0.14);
+    ctx.quadraticCurveTo(x + w - 11 + sway2 * 0.4, baseY - flameH * 0.45, x + w - 14, baseY - 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Inner bright yellow-white hot flame core
+    ctx.fillStyle = "#fef08a";
+    ctx.beginPath();
+    ctx.moveTo(x + 21, baseY - 6);
+    ctx.quadraticCurveTo(cx + sway1 * 0.35, topY + flameH * 0.34, x + w - 21, baseY - 6);
+    ctx.closePath();
+    ctx.fill();
+
+    // Rising cartoon ember sparks!
+    ctx.fillStyle = "#fde047";
+    [-11, 0, 12].forEach((ox, idx) => {
+      const sparkLift = ((timeSec * 70 + idx * 19) % 24);
+      ctx.beginPath();
+      ctx.arc(cx + ox + sway1 * 0.3, topY + 8 - sparkLift, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  // 2. Flush Steel Floor Fire Burner Grate (sits right on top of the platform at baseY - 8..baseY)
+  const rattleX = isWarning ? Math.sin(timeSec * 52) * 1.8 : 0;
+  ctx.fillStyle = "#1e293b";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.roundRect(x + rattleX, baseY - 8, w, 8, 3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Glowing hot ember nozzle slots along the burner grate!
+  const slotGlow = extendRatio > 0.3 || isWarning ? "#fde047" : "#f97316";
+  ctx.fillStyle = slotGlow;
+  for (let gx = x + 8; gx <= x + w - 14; gx += 12) {
+    ctx.fillRect(gx + rattleX, baseY - 6, 7, 4);
+  }
+
+  // Warning callout right before the 5s fire jet blasts up!
+  if (isWarning) {
+    ctx.fillStyle = "rgba(124, 45, 18, 0.92)";
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.roundRect(cx - 32, baseY - 34, 64, 17, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#fef08a";
+    ctx.font = "800 10px system-ui, -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("🔥 FIRE!", cx, baseY - 22);
+  }
+
+  ctx.restore();
+}
+
+/**
+ * Glowing cyan-violet stopwatch projectile with spinning clock hands & ripple halo!
+ */
+export function drawTimeFreezeOrb(ctx, { x, y, timeSec = 0 }) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  const pulse = 1 + 0.1 * Math.sin(timeSec * 14);
+  ctx.shadowColor = "#22d3ee";
+  ctx.shadowBlur = 12;
+
+  // Outer spinning chrono ring
+  ctx.strokeStyle = "#a855f7";
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12.5 * pulse, timeSec * 5, timeSec * 5 + Math.PI * 1.45);
+  ctx.stroke();
+
+  // Stopwatch Face Orb
+  ctx.fillStyle = "#cffafe";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 9.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Golden stopwatch crown button on top
+  ctx.fillStyle = "#facc15";
+  ctx.strokeStyle = INK;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.roundRect(-2.5, -13, 5, 3.5, 1.5);
+  ctx.fill();
+  ctx.stroke();
+
+  // Spinning cartoon clock hands inside the orb!
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  const handA = timeSec * 12;
+  const handB = -timeSec * 4.5;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(handA) * 6.2, Math.sin(handA) * 6.2);
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(handB) * 4.4, Math.sin(handB) * 4.4);
+  ctx.stroke();
+
+  ctx.fillStyle = "#ec4899";
+  ctx.beginPath();
+  ctx.arc(0, 0, 1.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+/**
+ * Suspends the pilot motionless in time inside a shimmering clockwork stasis sphere!
+ */
+export function drawTimeFreezeBubble(ctx, { x, y, w, h, timeLeft = 1.5, timeSec = 0 }) {
+  ctx.save();
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const r = Math.max(w, h) * 0.72;
+
+  // Translucent cyan-violet time stasis sphere
+  const grad = ctx.createRadialGradient(cx - 6, cy - 8, 4, cx, cy, r);
+  grad.addColorStop(0, "rgba(224, 242, 254, 0.22)");
+  grad.addColorStop(0.65, "rgba(56, 189, 248, 0.34)");
+  grad.addColorStop(1, "rgba(168, 85, 247, 0.56)");
+  ctx.fillStyle = grad;
+  ctx.strokeStyle = "#67e8f9";
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  // Clock tick marks around the stasis bubble rim!
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.strokeStyle = "rgba(254, 240, 138, 0.9)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 12; i++) {
+    const ang = (i * Math.PI) / 6;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(ang) * (r - 5), Math.sin(ang) * (r - 5));
+    ctx.lineTo(Math.cos(ang) * (r - 1), Math.sin(ang) * (r - 1));
+    ctx.stroke();
+  }
+
+  // Frozen twitching clock hands overlaid across bubble!
+  const tickSnap = Math.floor(timeSec * 8) * 0.25;
+  ctx.strokeStyle = "#fde047";
+  ctx.lineWidth = 2.4;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(tickSnap) * (r * 0.58), Math.sin(tickSnap) * (r * 0.58));
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(-1.1) * (r * 0.4), Math.sin(-1.1) * (r * 0.4));
+  ctx.stroke();
+  ctx.restore();
+
+  // Overhead "⏰ FROZEN IN TIME!" badge
+  const badgeText = `⏰ FROZEN IN TIME! ${timeLeft.toFixed(1)}s`;
+  ctx.fillStyle = "rgba(30, 27, 75, 0.94)";
+  ctx.strokeStyle = "#22d3ee";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(cx - 76, cy - r - 28, 152, 21, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#fef08a";
+  ctx.font = "800 11px -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(badgeText, cx, cy - r - 13.5);
 
   ctx.restore();
 }

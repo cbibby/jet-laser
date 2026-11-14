@@ -1,5 +1,8 @@
 # Jet Laser — Release Changelog
 
+## v1.1.0 (2026-11-14)
+- Added Big Moving Meteor, Double Chain Catapults, 800m Squish Hall, 5s Fire Jet, Micro-Tank Fuel, Smart-Aiming Snoolo & Time-Freezing Kaligater!
+
 ## v1.0.1 (2026-11-14)
 - Linear beginning-to-end campaign progression across Planet Zoola & Planet Shelin
 

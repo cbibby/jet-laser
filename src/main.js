@@ -29,6 +29,13 @@ import {
   drawMeteorPickup,
   drawPopupSpikes,
   drawMarsBike,
+  drawMovingMeteorPlatform,
+  drawFlyingRobotGuard,
+  drawSquishHallBackdrop,
+  drawSquishHallForeground,
+  drawPopupFireJet,
+  drawTimeFreezeOrb,
+  drawTimeFreezeBubble,
 } from "./entities/cartoonArt.js";
 import { PLANETS, LEVELS } from "./levels/levels.js";
 import { ToastOverlay } from "./engine/toast.js";
@@ -99,14 +106,16 @@ class JetLaserGame {
       walkPhase: 0,
       hp: 5,
       maxHp: 5,
-      fuel: 100,
-      maxFuel: 100,
+      fuel: 35,
+      maxFuel: 35,
       fireCooldown: 0,
       invulnTimer: 0,
       catapultVx: 0,
       frozenHitsLeft: 0,
       freezeShakeTimer: 0,
       freezeImmuneTimer: 0,
+      timeFreezeTimer: 0,
+      timeFreezeImmuneTimer: 0,
     };
   }
 
@@ -279,6 +288,29 @@ class JetLaserGame {
       hasIceInside: true,
     }));
     this.fallingIce = [];
+    this.squishHalls = (lvl.squishHalls || []).map((sh) => {
+      const segCount = sh.segmentCount || 4;
+      const segW = sh.w / segCount;
+      const segments = Array.from({ length: segCount }, (_, idx) => ({
+        id: `${sh.id}-seg-${idx + 1}`,
+        label: `${sh.label} Floor Piston #${idx + 1}`,
+        x: sh.x + idx * segW,
+        w: segW,
+        y: sh.baseY,
+        baseY: sh.baseY,
+        dy: 0,
+        state: "IDLE", // "IDLE" | "WARNING" | "RISING" | "TOP" | "LOWERING"
+        timer: 0,
+        slamFlashTimer: 0,
+      }));
+      return {
+        ...sh,
+        roofH: sh.roofH || 32,
+        bottomY: sh.bottomY || 540,
+        segments,
+      };
+    });
+    this.squishCount = 0;
     this.destructibles = (lvl.destructibles || []).map((d) => ({ ...d, maxHp: d.hp }));
 
     this.enemies = (lvl.enemies || []).map((e) => {
@@ -295,7 +327,10 @@ class JetLaserGame {
         h = 178;
       } else if (e.type === "squid_floater") {
         w = 58;
-        h = 68;
+        h = 96;
+      } else if (e.type === "flying_robot_guard") {
+        w = 60;
+        h = 54;
       } else if (e.type === "triangle_ufo") {
         w = 52;
         h = 48;
@@ -324,7 +359,7 @@ class JetLaserGame {
         origY: e.y,
         groundY: e.y,
         maxHp: e.hp,
-        vx: isShooter ? 0 : e.speed,
+        vx: e.type === "flying_robot_guard" ? e.speed || 78 : isShooter ? 0 : e.speed,
         vy: 0,
         fireTimer: e.fireInterval || 2.0,
         hurtTimer: 0,
@@ -332,10 +367,22 @@ class JetLaserGame {
         jumpTimer: e.jumpInterval || 2.35,
         crouchTimer: 0,
         jumpCount: 0,
+        timeFreezeShotTimer: e.timeFreezeInterval ? 1.85 : 0,
+        aiMode: e.type === "giant_stalk_boss" ? "PURSUE" : "RUSH",
+        aiTimer: 2.4,
+        dodgeCooldown: 0.6,
+        aimAngle: null,
+        aiCallout: null,
+        aiCalloutTimer: 0,
+        aimShotsFired: 0,
+        laserDodges: 0,
+        minXReached: e.x,
+        maxXReached: e.x + (isBoss && e.w ? e.w : w),
         w: isBoss && e.w ? e.w : w,
         h: isBoss && e.h ? e.h : h,
       };
     });
+    this.timeFreezeCount = 0;
 
     this.pickups = (lvl.pickups || []).map((c) => ({
       ...c,
@@ -386,7 +433,12 @@ class JetLaserGame {
   }
 
   _isShooterType(type) {
-    return type === "triangle_ufo" || type === "squid_floater" || type === "turret";
+    return (
+      type === "triangle_ufo" ||
+      type === "squid_floater" ||
+      type === "turret" ||
+      type === "flying_robot_guard"
+    );
   }
 
   isBossAlive() {
@@ -404,7 +456,32 @@ class JetLaserGame {
     const solidGates = this.destructibles
       .filter((d) => d.hp > 0)
       .map((d) => ({ id: d.id, label: d.label, x: d.x, y: d.y, w: d.w, h: d.h, dx: 0, dy: 0 }));
-    return [...activeStatic, ...this.movingPlatforms, ...solidGates];
+    const squishSolids = [];
+    (this.squishHalls || []).forEach((sh) => {
+      squishSolids.push({
+        id: `${sh.id}-roof`,
+        label: `${sh.label} Roof`,
+        x: sh.x,
+        y: sh.roofY,
+        w: sh.w,
+        h: sh.roofH,
+        dx: 0,
+        dy: 0,
+      });
+      sh.segments.forEach((seg) => {
+        squishSolids.push({
+          id: seg.id,
+          label: seg.label,
+          x: seg.x,
+          y: seg.y,
+          w: seg.w,
+          h: Math.max(24, sh.bottomY - seg.y),
+          dx: 0,
+          dy: seg.dy || 0,
+        });
+      });
+    });
+    return [...activeStatic, ...this.movingPlatforms, ...solidGates, ...squishSolids];
   }
 
   getSnapshotMetadata() {
@@ -632,6 +709,25 @@ class JetLaserGame {
       }
     });
 
+    (this.squishHalls || []).forEach((sh) => {
+      const totalH = sh.bottomY - sh.roofY;
+      if (inView(sh.x, sh.roofY, sh.w, totalH)) {
+        const clampedX = Math.max(0, sh.x - camX);
+        const clampedRight = Math.min(this.width, sh.x + sh.w - camX);
+        targets.push({
+          id: sh.id,
+          type: "squish_hall",
+          label: sh.label,
+          screenX: clampedX,
+          screenY: sh.roofY,
+          w: Math.max(24, clampedRight - clampedX),
+          h: sh.baseY - sh.roofY + 24,
+          worldX: sh.x + sh.w / 2,
+          worldY: (sh.roofY + sh.baseY) / 2,
+        });
+      }
+    });
+
     this.platforms.forEach((p) => {
       if (p.collapseState !== "GONE" && inView(p.x, p.y, p.w, p.h)) {
         const clampedX = Math.max(0, p.x - camX);
@@ -747,6 +843,7 @@ class JetLaserGame {
 
     this._updateCollapsingPlatforms(dt);
     this._updateMovingPlatforms(dt);
+    this._updateSquishHalls(dt);
     this._updateHazards(dt, prevLevelTimer);
     this._updateIceBuckets(dt, prevLevelTimer);
     this._updateTrampolines(dt);
@@ -826,12 +923,102 @@ class JetLaserGame {
     });
   }
 
+  _updateSquishHalls(dt) {
+    const p = this.player;
+    (this.squishHalls || []).forEach((sh) => {
+      const roofBottomY = sh.roofY + sh.roofH;
+      const minFloorY = roofBottomY + 10;
+
+      sh.segments.forEach((seg) => {
+        if (seg.slamFlashTimer > 0) {
+          seg.slamFlashTimer = Math.max(0, seg.slamFlashTimer - dt);
+        }
+        const prevY = seg.y;
+        const centerX = p.x + p.w * 0.5;
+        const centerInSeg = centerX >= seg.x && centerX < seg.x + seg.w;
+        const inZoneX = p.x + p.w - 6 > seg.x && p.x + 6 < seg.x + seg.w;
+        const insideHallY = p.y + p.h > roofBottomY + 6 && p.y < seg.y + 8;
+
+        if (seg.state === "IDLE") {
+          if (centerInSeg && insideHallY && p.y + p.h >= seg.y - 26) {
+            seg.state = "WARNING";
+            seg.timer = 0.34;
+          }
+        } else if (seg.state === "WARNING") {
+          seg.timer -= dt;
+          if (seg.timer <= 0) {
+            seg.state = "RISING";
+            if (seg.x + seg.w > this.cameraX - 60 && seg.x < this.cameraX + this.width + 60) {
+              this.sound.playPistonRise();
+            }
+          }
+        } else if (seg.state === "RISING") {
+          const riseSpeed = 265;
+          seg.y = Math.max(minFloorY, seg.y - riseSpeed * dt);
+
+          // Lift pilot upward if standing on this rising floor section!
+          if (
+            inZoneX &&
+            p.y + p.h >= prevY - 10 &&
+            p.y + p.h <= prevY + 14 &&
+            p.y >= roofBottomY - 4
+          ) {
+            p.y = Math.max(roofBottomY, seg.y - p.h);
+            p.onGround = true;
+            if (p.vy > 0) p.vy = 0;
+          }
+
+          // Check if the rising floor squishes the pilot into the Hall Roof!
+          if (inZoneX && p.y < seg.y && p.y >= roofBottomY - 6 && seg.y - roofBottomY <= p.h - 4) {
+            this.squishCount = (this.squishCount || 0) + 1;
+            seg.slamFlashTimer = 0.7;
+            this._damagePlayer(1, false);
+            this.sound.playSquishSlam();
+            this._spawnBurst(p.x + p.w / 2, roofBottomY + 8, "#fde047", 18);
+            this._spawnBurst(p.x + p.w / 2, roofBottomY + 14, "#fb7185", 12);
+            this.ui.showToast(
+              `💥 SQUISHED TO THE ROOF! Keep sprinting through the ${Math.round(sh.w)}m Hall!`,
+              2200
+            );
+            seg.y = roofBottomY + p.h + 6;
+            p.y = roofBottomY + 2;
+            p.vy = 0;
+            seg.state = "LOWERING";
+          } else if (seg.y <= minFloorY + 0.5) {
+            seg.y = minFloorY;
+            seg.state = "TOP";
+            seg.timer = 0.36;
+            seg.slamFlashTimer = 0.45;
+            if (seg.x + seg.w > this.cameraX - 60 && seg.x < this.cameraX + this.width + 60) {
+              this.sound.playSquishSlam();
+              this._spawnBurst(seg.x + seg.w / 2, roofBottomY + 6, "#facc15", 10);
+            }
+          }
+        } else if (seg.state === "TOP") {
+          seg.timer -= dt;
+          if (seg.timer <= 0) {
+            seg.state = "LOWERING";
+          }
+        } else if (seg.state === "LOWERING") {
+          seg.y = Math.min(seg.baseY, seg.y + 185 * dt);
+          if (seg.y >= seg.baseY - 0.5) {
+            seg.y = seg.baseY;
+            seg.state = "IDLE";
+          }
+        }
+
+        seg.dy = seg.y - prevY;
+      });
+    });
+  }
+
   _updateHazards(_dt, prevTimer) {
     let anyJustBoomedOnScreen = false;
     let anySpikesPoppedOnScreen = false;
+    let anyFirePoppedOnScreen = false;
 
     this.hazards.forEach((h) => {
-      if (h.kind === "popup_spikes") {
+      if (h.kind === "popup_spikes" || h.kind === "popup_fire") {
         const period = h.period || 5;
         const prevCycle = prevTimer % period;
         const cycle = this.levelTimer % period;
@@ -859,8 +1046,13 @@ class JetLaserGame {
           }
           if (prevCycle < popStart && cycle >= popStart) {
             if (h.x + h.w > this.cameraX - 80 && h.x < this.cameraX + this.width + 80) {
-              anySpikesPoppedOnScreen = true;
-              this._spawnBurst(h.x + h.w / 2, h.y + h.h - 10, "#38bdf8", 10);
+              if (h.kind === "popup_fire") {
+                anyFirePoppedOnScreen = true;
+                this._spawnBurst(h.x + h.w / 2, h.y + h.h - 14, "#fb923c", 14);
+              } else {
+                anySpikesPoppedOnScreen = true;
+                this._spawnBurst(h.x + h.w / 2, h.y + h.h - 10, "#38bdf8", 10);
+              }
             }
           }
         }
@@ -900,6 +1092,9 @@ class JetLaserGame {
     }
     if (anySpikesPoppedOnScreen) {
       this.sound.playSpikesPop();
+    }
+    if (anyFirePoppedOnScreen) {
+      this.sound.playFireWhoosh();
     }
   }
 
@@ -1030,6 +1225,25 @@ class JetLaserGame {
     if (p.fireCooldown > 0) p.fireCooldown = Math.max(0, p.fireCooldown - dt);
     if (p.freezeShakeTimer > 0) p.freezeShakeTimer = Math.max(0, p.freezeShakeTimer - dt);
     if (p.freezeImmuneTimer > 0) p.freezeImmuneTimer = Math.max(0, p.freezeImmuneTimer - dt);
+    if (p.timeFreezeImmuneTimer > 0) {
+      p.timeFreezeImmuneTimer = Math.max(0, p.timeFreezeImmuneTimer - dt);
+    }
+
+    if (p.timeFreezeTimer > 0) {
+      p.timeFreezeTimer = Math.max(0, p.timeFreezeTimer - dt);
+      p.vx = 0;
+      p.vy = 0;
+      p.catapultVx = 0;
+      p.jetting = false;
+      if (p.timeFreezeTimer <= 0) {
+        p.timeFreezeImmuneTimer = 2.8;
+        this.sound.playTimeResume();
+        this._spawnBurst(p.x + p.w / 2, p.y + p.h / 2, "#22d3ee", 16);
+        this.ui.showToast("⏰ TIME RESUMED! Move!", 1300);
+      } else {
+        return;
+      }
+    }
 
     if (p.frozenHitsLeft > 0) {
       p.vx = 0;
@@ -1093,7 +1307,7 @@ class JetLaserGame {
       if (p.vy > maxRise) {
         p.vy = Math.max(maxRise, p.vy - jetAccel * dt);
       }
-      p.fuel = Math.max(0, p.fuel - 19 * dt);
+      p.fuel = Math.max(0, p.fuel - 25 * dt);
       p.jetting = true;
       p.onGround = false;
       this.sound.playJetThrust(nowMs);
@@ -1134,15 +1348,27 @@ class JetLaserGame {
     p.x += moveVx * dt;
     p.x = Math.max(0, Math.min(this.currentLevel.width - p.w, p.x));
     for (const s of solids) {
+      if (s.oneWay) continue;
       if (rectsOverlap(p.x, p.y, p.w, p.h, s.x, s.y, s.w, s.h)) {
-        if (moveVx > 0) p.x = s.x - p.w;
-        else if (moveVx < 0) p.x = s.x + s.w;
-        p.vx = 0;
-        p.catapultVx = 0;
+        const stepUpDiff = p.y + p.h - s.y;
+        const canStepUp =
+          stepUpDiff > 0 &&
+          stepUpDiff <= 14 &&
+          !solids.some((other) => !other.oneWay && other !== s && rectsOverlap(p.x, s.y - p.h, p.w, p.h, other.x, other.y, other.w, other.h));
+        if (canStepUp) {
+          p.y = s.y - p.h;
+          if (p.vy > 0) p.vy = 0;
+        } else {
+          if (moveVx > 0) p.x = s.x - p.w;
+          else if (moveVx < 0) p.x = s.x + s.w;
+          p.vx = 0;
+          p.catapultVx = 0;
+        }
       }
     }
 
     // Vertical move & collision
+    const prevBottom = p.y + p.h;
     p.y += p.vy * dt;
     p.onGround = false;
     if (p.y < 8) {
@@ -1151,6 +1377,15 @@ class JetLaserGame {
     }
 
     for (const s of solids) {
+      if (s.oneWay) {
+        if (p.vy >= 0 && prevBottom <= s.y + 12 && rectsOverlap(p.x, p.y, p.w, p.h, s.x, s.y, s.w, s.h)) {
+          p.y = s.y - p.h;
+          p.vy = 0;
+          p.catapultVx = 0;
+          p.onGround = true;
+        }
+        continue;
+      }
       if (rectsOverlap(p.x, p.y, p.w, p.h, s.x, s.y, s.w, s.h)) {
         if (p.vy >= 0) {
           p.y = s.y - p.h;
@@ -1211,9 +1446,9 @@ class JetLaserGame {
       this.sound.playLaser();
     }
 
-    // Hazard pits, pop-up ground spikes, swirling wormholes & active 10-second erupting lava geysers!
+    // Hazard pits, pop-up ground spikes/fire, swirling wormholes & active 10-second erupting lava geysers!
     for (const h of this.hazards) {
-      if (h.kind === "popup_spikes") {
+      if (h.kind === "popup_spikes" || h.kind === "popup_fire") {
         if ((h.extendRatio || 0) > 0.42) {
           const activeH = h.h * h.extendRatio;
           const spikeTopY = h.y + h.h - activeH;
@@ -1297,6 +1532,7 @@ class JetLaserGame {
     p.vy = 0;
     p.jetting = false;
     p.frozenHitsLeft = 0;
+    p.timeFreezeTimer = 0;
     this.sound.playWormholeWarp();
     this._spawnBurst(h.x + h.w / 2, h.y + 14, "#22d3ee", 18);
     this._spawnBurst(h.x + h.w / 2, h.y + 20, "#a855f7", 16);
@@ -1454,10 +1690,11 @@ class JetLaserGame {
         }
       }
 
-      // Zap enemy plasma balls mid-air!
+      // Zap regular enemy plasma balls mid-air (Kaligater's Time-Freeze Orb cannot be zapped!)
       if (!hit) {
         for (let j = this.enemyProjectiles.length - 1; j >= 0; j--) {
           const ep = this.enemyProjectiles[j];
+          if (ep.kind === "time_freeze_orb") continue;
           if (rectsOverlap(b.x, b.y - 4, b.w, b.h + 8, ep.x - 7, ep.y - 7, 14, 14)) {
             this.enemyProjectiles.splice(j, 1);
             hit = true;
@@ -1467,10 +1704,10 @@ class JetLaserGame {
         }
       }
 
-      // Hit active walls
+      // Hit active walls (skip one-way jump-through arena ledges)
       if (!hit) {
         const activeWalls = [
-          ...this.platforms.filter((p) => p.collapseState !== "FALLING" && p.collapseState !== "GONE"),
+          ...this.platforms.filter((p) => !p.oneWay && p.collapseState !== "FALLING" && p.collapseState !== "GONE"),
           ...this.movingPlatforms,
         ];
         for (const s of activeWalls) {
@@ -1511,110 +1748,303 @@ class JetLaserGame {
           e.vx = 0;
         }
       } else if (this._isBossType(e.type)) {
-        // Giant Boss (Kaligater patrols; Snoolo actively chases AND pounces into the air to get you!)
         const bossCenterX = e.x + e.w / 2;
         const playerCenterX = p.x + p.w / 2;
+        const playerCenterY = p.y + p.h / 2;
         const dxToPlayer = playerCenterX - bossCenterX;
         const dist = Math.abs(dxToPlayer);
+        if (e.dodgeCooldown > 0) e.dodgeCooldown = Math.max(0, e.dodgeCooldown - dt);
+        if (e.aiCalloutTimer > 0) e.aiCalloutTimer = Math.max(0, e.aiCalloutTimer - dt);
 
         if (e.jumps) {
-          const inArena = p.x >= 2065 && dist < 820;
-          if (e.jumpState === "CROUCH") {
+          if (p.x >= 2085) e.arenaEngaged = true;
+          const inArena = Boolean(e.arenaEngaged) || (p.x >= 2085 && dist < 860);
+          const activeMinX = e.arenaEngaged ? e.patrolMinX : Math.max(e.patrolMinX, 2440);
+          const rage = Math.max(0, Math.min(1, 1 - e.hp / (e.maxHp || 30)));
+          const leadX = playerCenterX + p.vx * 0.2;
+          const leadY = playerCenterY + p.vy * 0.14;
+          e.aimAngle = Math.atan2(leadY - (e.y + 52), leadX - bossCenterX);
+
+          // Smart Laser-Sense Reflex: leaps right over incoming player laser bolts!
+          const incomingLaser =
+            e.smartBoss &&
+            e.jumpState === "PATROL" &&
+            e.dodgeCooldown <= 0 &&
+            this.lasers.some(
+              (b) =>
+                b.y + b.h >= e.y + 20 &&
+                b.y <= e.y + e.h - 8 &&
+                ((b.vx > 0 && b.x < e.x && e.x - b.x < 185) ||
+                  (b.vx < 0 && b.x > e.x + e.w && b.x - (e.x + e.w) < 185))
+            );
+
+          if (incomingLaser) {
+            e.jumpState = "AIR";
+            e.jumpCount = (e.jumpCount || 0) + 1;
+            e.laserDodges = (e.laserDodges || 0) + 1;
+            e.dodgeCooldown = 2.35;
+            e.vy = -480;
+            e.vx = Math.max(-295, Math.min(295, dxToPlayer * 0.92));
+            e.aiCallout = "🦘 LASER DODGE!";
+            e.aiCalloutTimer = 0.85;
+            this.sound.playBossJump();
+            this._spawnBurst(e.x + e.w / 2, e.groundY + e.h - 6, "#fde047", 14);
+          } else if (e.jumpState === "CROUCH") {
             e.crouchTimer -= dt;
             if (e.crouchTimer <= 0) {
               e.jumpState = "AIR";
               e.jumpCount = (e.jumpCount || 0) + 1;
-              e.vy = -505;
-              const aimVx = dxToPlayer / 0.95;
-              e.vx = Math.max(-245, Math.min(245, aimVx));
+              e.vy = -535;
+              const predictedDx = dxToPlayer + p.vx * 0.32;
+              const aimVx = predictedDx / 0.92;
+              e.vx = Math.max(-325, Math.min(325, aimVx));
               this.sound.playBossJump();
-              this._spawnBurst(e.x + e.w / 2, e.groundY + e.h - 6, "#fb7185", 14);
+              this._spawnBurst(e.x + e.w / 2, e.groundY + e.h - 6, "#fb7185", 16);
             }
           } else if (e.jumpState === "AIR") {
             e.vy += 980 * dt;
             e.x += e.vx * dt;
             e.y += e.vy * dt;
-            if (e.x < e.patrolMinX) {
-              e.x = e.patrolMinX;
-              e.vx = Math.abs(e.vx) * 0.5;
+            if (e.x < activeMinX) {
+              e.x = activeMinX;
+              e.vx = Math.abs(e.vx) * 0.55;
             } else if (e.x + e.w > e.patrolMaxX) {
               e.x = e.patrolMaxX - e.w;
-              e.vx = -Math.abs(e.vx) * 0.5;
+              e.vx = -Math.abs(e.vx) * 0.55;
             }
             if (e.y >= e.groundY) {
               e.y = e.groundY;
               e.vy = 0;
               e.jumpState = "PATROL";
-              e.jumpTimer = e.jumpInterval || 2.35;
+              e.jumpTimer = Math.max(1.25, (e.jumpInterval || 1.9) * (1 - rage * 0.22));
               this.sound.playBossSlam();
               this._spawnBurst(e.x + 36, e.groundY + e.h - 4, "#fde047", 14);
               this._spawnBurst(e.x + e.w - 36, e.groundY + e.h - 4, "#fb7185", 14);
+              // Smart Boss Slam Shockwave skimming left & right along the floor in enraged phase!
+              if (e.smartBoss && inArena && rage >= 0.3) {
+                [-1, 1].forEach((sdir) => {
+                  this.enemyProjectiles.push({
+                    x: e.x + e.w / 2 + sdir * 68,
+                    y: e.groundY + e.h - 14,
+                    vx: sdir * 245,
+                    vy: 0,
+                    color: "#fde047",
+                    life: 2.2,
+                  });
+                });
+              }
             }
           } else {
             if (inArena) {
+              e.aiTimer -= dt;
+              if (e.aiTimer <= 0) {
+                if (p.y + p.h < 385) {
+                  e.aiMode = "AMBUSH";
+                  e.aiTimer = 1.25;
+                } else if (e.aiMode === "RUSH") {
+                  e.aiMode = dist < 290 ? "FAKEOUT" : "STRAFE";
+                  e.aiTimer = e.aiMode === "FAKEOUT" ? 0.44 : 1.1;
+                } else {
+                  e.aiMode = "RUSH";
+                  e.aiTimer = 1.55;
+                }
+              }
+
               const chaseDir =
-                dxToPlayer < -14 ? -1 : dxToPlayer > 14 ? 1 : e.vx >= 0 ? 1 : -1;
-              e.vx = chaseDir * Math.abs(e.speed) * 1.12;
+                dxToPlayer < -10 ? -1 : dxToPlayer > 10 ? 1 : e.vx >= 0 ? 1 : -1;
+              const smartSpeed = Math.abs(e.speed) * (1.08 + rage * 0.24);
+              if (e.aiMode === "FAKEOUT") {
+                // Quick feint backward before pouncing right onto the pilot!
+                e.vx = -chaseDir * smartSpeed * 0.92;
+              } else if (e.aiMode === "STRAFE" && dist < 190) {
+                e.vx = -chaseDir * smartSpeed * 0.75;
+              } else {
+                e.vx = chaseDir * smartSpeed;
+              }
+
               e.jumpTimer -= dt;
-              if (e.jumpTimer <= 0 && dist < 680) {
+              if ((e.jumpTimer <= 0 || (e.aiMode === "AMBUSH" && dist < 240 && e.jumpTimer < 0.9)) && dist < 760) {
                 e.jumpState = "CROUCH";
-                e.crouchTimer = 0.36;
+                e.crouchTimer = 0.28;
                 e.vx = 0;
               }
             }
             e.x += e.vx * dt;
-            if (e.x <= e.patrolMinX) {
-              e.x = e.patrolMinX;
+            if (e.x <= activeMinX) {
+              e.x = activeMinX;
               e.vx = Math.abs(e.speed);
             } else if (e.x + e.w >= e.patrolMaxX) {
               e.x = e.patrolMaxX - e.w;
               e.vx = -Math.abs(e.speed);
             }
           }
+
+          // Smart 2D Predictive Aimed Plasma Volley ("aims for you!")
+          if (inArena) e.fireTimer -= dt;
+          if (inArena && e.fireTimer <= 0 && dist < 850) {
+            e.fireTimer = Math.max(1.12, e.fireInterval * (1 - rage * 0.2));
+            const originX = bossCenterX + Math.cos(e.aimAngle) * 52;
+            const originY = e.y + 54 + Math.sin(e.aimAngle) * 18;
+            const shotSpeed = 256;
+            const spreads = rage >= 0.35 ? [-0.21, 0, 0.21] : [-0.14, 0.14];
+            spreads.forEach((spread) => {
+              const ang = e.aimAngle + spread;
+              this.enemyProjectiles.push({
+                kind: "laser_beam",
+                x: originX,
+                y: originY,
+                vx: Math.cos(ang) * shotSpeed,
+                vy: Math.sin(ang) * shotSpeed,
+                color: spread === 0 ? "#fde047" : "#fb7185",
+                life: 2.9,
+              });
+            });
+            e.aimShotsFired = (e.aimShotsFired || 0) + 1;
+            if (e.aiCalloutTimer <= 0) {
+              e.aiCallout = "🎯 LOCK-ON!";
+              e.aiCalloutTimer = 0.65;
+            }
+            if (e.x + e.w > this.cameraX - 60 && e.x < this.cameraX + this.width + 60) {
+              this.sound.playBossAimShot();
+            }
+          }
         } else {
+          if (p.x >= 2085) e.arenaEngaged = true;
+          const inArena = Boolean(e.arenaEngaged) || (p.x >= 2085 && dist < 860);
+          const activeMinX = e.arenaEngaged ? e.patrolMinX : Math.max(e.patrolMinX, 2430);
+          if (inArena) {
+            e.aiTimer -= dt;
+            if (e.aiTimer <= 0 && e.aiMode === "PURSUE") {
+              e.aiMode = "FULL_SWEEP";
+              e.aiTimer = 3.2;
+              const sweepDir = dxToPlayer >= 0 ? 1 : -1;
+              e.vx = sweepDir * Math.abs(e.speed) * 1.28;
+            } else if (e.aiTimer <= 0 && e.aiMode === "FULL_SWEEP") {
+              e.aiMode = "PURSUE";
+              e.aiTimer = 2.8;
+            }
+            if (e.aiMode === "PURSUE") {
+              const chaseDir =
+                dxToPlayer < -8 ? -1 : dxToPlayer > 8 ? 1 : e.vx >= 0 ? 1 : -1;
+              e.vx = chaseDir * Math.abs(e.speed) * 1.22;
+            }
+          }
           e.x += e.vx * dt;
-          if (e.x <= e.patrolMinX) {
-            e.x = e.patrolMinX;
-            e.vx = Math.abs(e.speed);
+          if (e.x <= activeMinX) {
+            e.x = activeMinX;
+            e.vx = Math.abs(e.speed) * 1.22;
+            if (e.aiMode === "FULL_SWEEP") {
+              e.aiMode = "PURSUE";
+              e.aiTimer = 2.6;
+            }
           } else if (e.x + e.w >= e.patrolMaxX) {
             e.x = e.patrolMaxX - e.w;
-            e.vx = -Math.abs(e.speed);
+            e.vx = -Math.abs(e.speed) * 1.22;
+            if (e.aiMode === "FULL_SWEEP") {
+              e.aiMode = "PURSUE";
+              e.aiTimer = 2.6;
+            }
+          }
+
+          // Kaligater's Chrono Time-Freeze Orb Attack!
+          if (inArena && e.timeFreezeInterval) {
+            e.timeFreezeShotTimer -= dt;
+            if (e.timeFreezeShotTimer <= 0 && dist < 840) {
+              e.timeFreezeShotTimer = e.timeFreezeInterval;
+              const originX = bossCenterX;
+              const originY = e.y + 34;
+              const tdx = playerCenterX - originX;
+              const tdy = playerCenterY - originY;
+              const tlen = Math.hypot(tdx, tdy) || 1;
+              const orbSpeed = 248;
+              this.enemyProjectiles.push({
+                kind: "time_freeze_orb",
+                x: originX,
+                y: originY,
+                vx: (tdx / tlen) * orbSpeed,
+                vy: (tdy / tlen) * orbSpeed,
+                color: "#22d3ee",
+                life: 3.4,
+              });
+              this._spawnBurst(originX, originY, "#22d3ee", 12);
+            }
+          }
+
+          if (inArena) e.fireTimer -= dt;
+          if (inArena && e.fireTimer <= 0 && dist < 820) {
+            e.fireTimer = e.fireInterval;
+            const dir = p.x < e.x + e.w / 2 ? -1 : 1;
+            const originX = e.x + e.w / 2 + dir * 48;
+            const originY = e.y + 42;
+            const aimAng = Math.atan2(playerCenterY - originY, playerCenterX - originX);
+            [-0.18, 0.18].forEach((off) => {
+              this.enemyProjectiles.push({
+                x: originX,
+                y: originY,
+                vx: Math.cos(aimAng + off) * 242,
+                vy: Math.sin(aimAng + off) * 242,
+                color: "#a855f7",
+                life: 2.8,
+              });
+            });
           }
         }
 
-        e.fireTimer -= dt;
-        if (e.fireTimer <= 0 && dist < 760) {
-          e.fireTimer = e.fireInterval;
-          const dir = p.x < e.x + e.w / 2 ? -1 : 1;
-          const originX = e.x + e.w / 2 + dir * 48;
-          const originY = e.y + 42;
-          const shotColor = e.type === "snoolo_boss" ? "#fb7185" : "#a855f7";
-          [-38, 35].forEach((vy) => {
-            this.enemyProjectiles.push({
-              x: originX,
-              y: originY,
-              vx: dir * 238,
-              vy,
-              color: shotColor,
-              life: 2.8,
-            });
-          });
-        }
+        e.minXReached = Math.min(e.minXReached, e.x);
+        e.maxXReached = Math.max(e.maxXReached, e.x + e.w);
       } else if (this._isShooterType(e.type)) {
-        e.fireTimer -= dt;
-        const dist = Math.abs(p.x - e.x);
-        if (e.fireTimer <= 0 && dist < 540) {
-          e.fireTimer = e.fireInterval;
-          const dir = p.x < e.x ? -1 : 1;
-          const shotColor = e.type === "squid_floater" ? "#22d3ee" : "#fb923c";
-          this.enemyProjectiles.push({
-            x: dir < 0 ? e.x - 4 : e.x + e.w + 4,
-            y: e.y + e.h * 0.55,
-            vx: dir * 240,
-            vy: 0,
-            color: shotColor,
-            life: 2.4,
-          });
+        if (e.type === "flying_robot_guard") {
+          e.x += e.vx * dt;
+          if (e.patrolMinX !== undefined && e.x <= e.patrolMinX) {
+            e.x = e.patrolMinX;
+            e.vx = Math.abs(e.speed || 78);
+          } else if (e.patrolMaxX !== undefined && e.x + e.w >= e.patrolMaxX) {
+            e.x = e.patrolMaxX - e.w;
+            e.vx = -Math.abs(e.speed || 78);
+          }
+          e.y = e.origY + Math.sin(this.levelTimer * 3.6 + e.origX * 0.02) * 7;
+
+          e.fireTimer -= dt;
+          const cx = e.x + e.w / 2;
+          const cy = e.y + 40;
+          const dx = p.x + p.w / 2 - cx;
+          const dy = p.y + p.h / 2 - cy;
+          const dist = Math.abs(dx);
+          if (e.fireTimer <= 0 && dist < 560) {
+            e.fireTimer = e.fireInterval || 2.5;
+            const len = Math.hypot(dx, dy) || 1;
+            const speed = 242;
+            const ux = dx / len;
+            const uy = dy / len;
+            this.enemyProjectiles.push({
+              kind: "laser_beam",
+              x: cx + ux * 18,
+              y: cy + uy * 18,
+              vx: ux * speed,
+              vy: uy * speed,
+              color: "#f43f5e",
+              life: 2.6,
+            });
+            if (e.x + e.w > this.cameraX - 40 && e.x < this.cameraX + this.width + 40) {
+              this.sound.playRobotLaser();
+            }
+          }
+        } else {
+          e.fireTimer -= dt;
+          const dist = Math.abs(p.x - e.x);
+          if (e.fireTimer <= 0 && dist < 540) {
+            e.fireTimer = e.fireInterval;
+            const dir = p.x < e.x ? -1 : 1;
+            const shotColor = e.type === "squid_floater" ? "#22d3ee" : "#fb923c";
+            this.enemyProjectiles.push({
+              x: dir < 0 ? e.x - 4 : e.x + e.w + 4,
+              y: e.y + e.h * 0.55,
+              vx: dir * 240,
+              vy: 0,
+              color: shotColor,
+              life: 2.4,
+            });
+          }
         }
       } else {
         e.x += e.vx * dt;
@@ -1643,6 +2073,10 @@ class JetLaserGame {
         const wasInvuln = p.invulnTimer > 0;
         this._damagePlayer(1, false);
         if (!wasInvuln && this._isBossType(e.type)) {
+          if (p.timeFreezeTimer > 0) {
+            p.timeFreezeTimer = 0;
+            p.timeFreezeImmuneTimer = 2.6;
+          }
           const pushDir = p.x + p.w / 2 < e.x + e.w / 2 ? -1 : 1;
           p.vx = pushDir * 240;
           p.vy = -195;
@@ -1660,14 +2094,42 @@ class JetLaserGame {
       ep.y += (ep.vy || 0) * dt;
       ep.life -= dt;
 
-      if (rectsOverlap(p.x + 3, p.y + 3, p.w - 6, p.h - 6, ep.x - 6, ep.y - 6, 12, 12)) {
+      const hitRadius = ep.kind === "time_freeze_orb" ? 10 : 6;
+      if (
+        rectsOverlap(
+          p.x + 3,
+          p.y + 3,
+          p.w - 6,
+          p.h - 6,
+          ep.x - hitRadius,
+          ep.y - hitRadius,
+          hitRadius * 2,
+          hitRadius * 2
+        )
+      ) {
         this.enemyProjectiles.splice(i, 1);
-        this._damagePlayer(1, false);
+        if (ep.kind === "time_freeze_orb") {
+          if (p.timeFreezeTimer <= 0 && p.timeFreezeImmuneTimer <= 0) {
+            p.timeFreezeTimer = 1.85;
+            p.vx = 0;
+            p.vy = 0;
+            p.catapultVx = 0;
+            p.jetting = false;
+            this.timeFreezeCount = (this.timeFreezeCount || 0) + 1;
+            this.sound.playTimeFreeze();
+            this._spawnBurst(p.x + p.w / 2, p.y + p.h / 2, "#22d3ee", 20);
+            this._spawnBurst(p.x + p.w / 2, p.y + p.h / 2, "#a855f7", 14);
+            this.ui.showToast("⏰ KALIGATER FROZE YOU IN TIME!", 1800);
+          }
+        } else {
+          this._damagePlayer(1, false);
+        }
         continue;
       }
 
       const blocked = this.platforms.some(
         (s) =>
+          s.h >= 40 &&
           s.collapseState !== "FALLING" &&
           s.collapseState !== "GONE" &&
           rectsOverlap(ep.x - 5, ep.y - 5, 10, 10, s.x, s.y, s.w, s.h)
@@ -1915,8 +2377,10 @@ class JetLaserGame {
     ctx.translate(-this.cameraX, 0);
 
     this._renderSigns(ctx);
+    this._renderSquishHallBackdrops(ctx);
     this._renderHazards(ctx);
     this._renderPlatforms(ctx);
+    this._renderSquishHallForegrounds(ctx);
     this._renderTrampolines(ctx);
     this._renderDestructibles(ctx);
     this._renderIceBuckets(ctx);
@@ -1977,6 +2441,16 @@ class JetLaserGame {
             h: this.player.h,
             hitsLeft: this.player.frozenHitsLeft,
             shakeTimer: this.player.freezeShakeTimer,
+            timeSec: this.timeSec,
+          });
+        }
+        if (this.player.timeFreezeTimer > 0) {
+          drawTimeFreezeBubble(ctx, {
+            x: this.player.x,
+            y: this.player.y,
+            w: this.player.w,
+            h: this.player.h,
+            timeLeft: this.player.timeFreezeTimer,
             timeSec: this.timeSec,
           });
         }
@@ -2181,6 +2655,18 @@ class JetLaserGame {
     const all = [...visibleStatic, ...this.movingPlatforms];
 
     all.forEach((p) => {
+      if (p.style === "big_meteor") {
+        drawMovingMeteorPlatform(ctx, {
+          x: p.x,
+          y: p.y,
+          w: p.w,
+          h: p.h,
+          dx: p.dx || 0,
+          timeSec: this.timeSec,
+        });
+        return;
+      }
+
       const drawX = p.x + (p.shakeOffsetX || 0);
       ctx.save();
 
@@ -2251,6 +2737,19 @@ class JetLaserGame {
     this.hazards.forEach((h) => {
       if (h.kind === "popup_spikes") {
         drawPopupSpikes(ctx, {
+          x: h.x,
+          y: h.y,
+          w: h.w,
+          h: h.h,
+          extendRatio: h.extendRatio || 0,
+          isWarning: Boolean(h.isWarning),
+          timeSec: this.timeSec,
+        });
+        return;
+      }
+
+      if (h.kind === "popup_fire") {
+        drawPopupFireJet(ctx, {
           x: h.x,
           y: h.y,
           w: h.w,
@@ -2377,6 +2876,18 @@ class JetLaserGame {
           timeSec: this.timeSec,
         });
       }
+    });
+  }
+
+  _renderSquishHallBackdrops(ctx) {
+    (this.squishHalls || []).forEach((sh) => {
+      drawSquishHallBackdrop(ctx, sh, this.timeSec);
+    });
+  }
+
+  _renderSquishHallForegrounds(ctx) {
+    (this.squishHalls || []).forEach((sh) => {
+      drawSquishHallForeground(ctx, sh, this.timeSec);
     });
   }
 
@@ -2575,6 +3086,21 @@ class JetLaserGame {
           timeSec: this.timeSec,
           hurtFlash: e.hurtTimer > 0,
         });
+      } else if (e.type === "flying_robot_guard") {
+        const aimAngle = Math.atan2(
+          this.player.y + this.player.h / 2 - (e.y + 40),
+          this.player.x + this.player.w / 2 - (e.x + e.w / 2)
+        );
+        drawFlyingRobotGuard(ctx, {
+          x: e.x,
+          y: e.y,
+          w: e.w,
+          h: e.h,
+          facing: this.player.x + this.player.w / 2 < e.x + e.w / 2 ? -1 : 1,
+          aimAngle,
+          timeSec: this.timeSec,
+          hurtFlash: e.hurtTimer > 0,
+        });
       } else if (e.type === "snoolo_boss") {
         drawSnooloBoss(ctx, {
           x: e.x,
@@ -2582,6 +3108,8 @@ class JetLaserGame {
           w: e.w,
           h: e.h,
           facing: this.player.x < e.x + e.w / 2 ? -1 : 1,
+          aimAngle: e.aimAngle,
+          aiCallout: e.aiCalloutTimer > 0 ? e.aiCallout : null,
           timeSec: this.timeSec,
           hurtFlash: e.hurtTimer > 0,
           jumpState: e.jumpState || "PATROL",
@@ -2615,6 +3143,33 @@ class JetLaserGame {
     });
 
     this.enemyProjectiles.forEach((ep) => {
+      if (ep.kind === "time_freeze_orb") {
+        drawTimeFreezeOrb(ctx, { x: ep.x, y: ep.y, timeSec: this.timeSec });
+        return;
+      }
+      if (ep.kind === "laser_beam") {
+        const angle = Math.atan2(ep.vy || 0, ep.vx);
+        ctx.save();
+        ctx.translate(ep.x, ep.y);
+        ctx.rotate(angle);
+        ctx.shadowColor = ep.color || "#f43f5e";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = ep.color || "#f43f5e";
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.roundRect(-12, -3.5, 24, 7, 3.5);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.roundRect(-8, -1.5, 16, 3, 1.5);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
       ctx.fillStyle = ep.color || "#fb923c";
       ctx.strokeStyle = "#0f172a";
       ctx.lineWidth = 1.8;
@@ -2683,22 +3238,44 @@ class JetLaserGame {
 
     ctx.fillStyle = "#e2e8f0";
     ctx.fillText("JET FUEL", 28, 58);
+    const fuelBarX = 96;
+    const fuelBarW = 104;
     ctx.fillStyle = "#1e293b";
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.roundRect(96, 47, 160, 13, 6);
+    ctx.roundRect(fuelBarX, 47, fuelBarW, 13, 6);
     ctx.fill();
+    ctx.stroke();
 
     const fuelRatio = this.player.fuel / this.player.maxFuel;
-    ctx.fillStyle = fuelRatio > 0.25 ? "#38bdf8" : "#f43f5e";
+    ctx.fillStyle = fuelRatio > 0.3 ? "#38bdf8" : "#f43f5e";
     if (fuelRatio > 0) {
       ctx.beginPath();
-      ctx.roundRect(96, 47, Math.max(8, 160 * fuelRatio), 13, 6);
+      ctx.roundRect(fuelBarX, 47, Math.max(6, fuelBarW * fuelRatio), 13, 6);
       ctx.fill();
+      // 4 micro-tank cell divider ticks
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.72)";
+      ctx.lineWidth = 1.4;
+      for (let cell = 1; cell < 4; cell++) {
+        const tx = fuelBarX + (fuelBarW * cell) / 4;
+        ctx.beginPath();
+        ctx.moveTo(tx, 47);
+        ctx.lineTo(tx, 60);
+        ctx.stroke();
+      }
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "700 10.5px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(`${Math.ceil(this.player.fuel)}/${this.player.maxFuel}`, fuelBarX + fuelBarW + 7, 57.5);
     } else {
       ctx.fillStyle = Math.floor(this.timeSec * 6) % 2 === 0 ? "#fde047" : "#fda4af";
-      ctx.font = "800 9.5px -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.font = "800 9px -apple-system, BlinkMacSystemFont, sans-serif";
       ctx.textAlign = "center";
-      ctx.fillText("EMPTY! GRAB FUEL TANK!", 176, 57);
+      ctx.fillText("EMPTY! TANK!", fuelBarX + fuelBarW / 2, 56.5);
+      ctx.fillStyle = "#f43f5e";
+      ctx.textAlign = "left";
+      ctx.fillText(`0/${this.player.maxFuel}`, fuelBarX + fuelBarW + 7, 57.5);
     }
 
     // Center Boss Health Bar (when approaching or fighting the Giant Stalk-Eye Boss!)
