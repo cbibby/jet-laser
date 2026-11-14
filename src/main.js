@@ -110,33 +110,7 @@ class JetLaserGame {
     };
   }
 
-  _applyUrlShortcuts() {
-    const params = new URLSearchParams(window.location.search);
-    const savedReloadPilot = sessionStorage.getItem("jetlaser_reload_pilot");
-    if (savedReloadPilot) {
-      sessionStorage.removeItem("jetlaser_reload_pilot");
-      this.selectPilotByName(savedReloadPilot);
-      this.startGame();
-      return;
-    }
-    const pilotParam = params.get("pilot");
-    if (pilotParam) {
-      this.selectPilotByName(pilotParam);
-      this.startGame();
-    }
-    const levelParam = params.get("level");
-    if (levelParam !== null && !Number.isNaN(Number(levelParam))) {
-      const idx = Math.max(0, Math.min(this.levels.length - 1, Number(levelParam)));
-      if (pilotParam) {
-        this.beginLevelWithRoverArrival(idx);
-      } else {
-        this.loadLevel(idx);
-      }
-    }
-    if (params.get("autotest") === "1" && this.debug) {
-      setTimeout(() => this.debug.runUrlAutoSuite(params), 25);
-    }
-  }
+  _applyUrlShortcuts() {}
 
   _bindCanvasSelectClick() {
     this.canvas.addEventListener("click", (e) => {
@@ -204,41 +178,17 @@ class JetLaserGame {
 
   _getPilotCardRects() {
     return [
-      { id: "card-nova", pilot: PILOTS[0], x: 185, y: 140, w: 260, h: 228 },
-      { id: "card-ion", pilot: PILOTS[1], x: 515, y: 140, w: 260, h: 228 },
+      { id: "card-nova", pilot: PILOTS[0], x: 185, y: 176, w: 260, h: 228 },
+      { id: "card-ion", pilot: PILOTS[1], x: 515, y: 176, w: 260, h: 228 },
     ];
   }
 
   _getPlanetTabRects() {
-    const tabW = 240;
-    const gap = 18;
-    const totalW = this.planets.length * tabW + (this.planets.length - 1) * gap;
-    const startX = (this.width - totalW) / 2;
-    return this.planets.map((planet, idx) => ({
-      planet,
-      x: startX + idx * (tabW + gap),
-      y: 380,
-      w: tabW,
-      h: 34,
-    }));
+    return [];
   }
 
   _getLevelTabRects() {
-    const entries = this.getPlanetLevelEntries(this.selectedPlanetId);
-    const count = entries.length;
-    const tabW = 148;
-    const gap = 12;
-    const totalW = count * tabW + (count - 1) * gap;
-    const startX = (this.width - totalW) / 2;
-    return entries.map((entry, localIdx) => ({
-      localIdx,
-      globalIndex: entry.globalIndex,
-      lvl: entry.lvl,
-      x: startX + localIdx * (tabW + gap),
-      y: 422,
-      w: tabW,
-      h: 38,
-    }));
+    return [];
   }
 
   selectPilotByName(name) {
@@ -263,7 +213,7 @@ class JetLaserGame {
     this.activePilot = PILOTS[this.selectedPilotIndex];
     this.score = 0;
     this.sound.playUiConfirm();
-    this.beginLevelWithRoverArrival(this.currentLevelIndex);
+    this.beginLevelWithRoverArrival(0);
     this._updatePilotPill();
   }
 
@@ -728,28 +678,6 @@ class JetLaserGame {
       this._updatePilotPill();
       this.sound.playUiMove();
       return;
-    }
-
-    if (this.input.wasPressed("KeyP")) {
-      const nextPlanetId = this.selectedPlanetId === "zoola" ? "shelin" : "zoola";
-      this.switchPlanet(nextPlanetId);
-      return;
-    }
-
-    // Quick Level Jump within current Planet (Keys 1..5)
-    const planetEntries = this.getPlanetLevelEntries(this.selectedPlanetId);
-    for (let i = 0; i < Math.min(9, planetEntries.length); i++) {
-      if (this.input.wasPressed(`Digit${i + 1}`)) {
-        const targetGlobalIdx = planetEntries[i].globalIndex;
-        if (this.state === "SELECT_PILOT") {
-          this.loadLevel(targetGlobalIdx);
-        } else {
-          this.beginLevelWithRoverArrival(targetGlobalIdx);
-        }
-        this.sound.playUiMove();
-        this.ui.showToast(`🪐 ${this.currentLevel.name}`, 1800);
-        return;
-      }
     }
 
     if (this.state === "SELECT_PILOT") {
@@ -2089,12 +2017,12 @@ class JetLaserGame {
     ctx.fillStyle = "#facc15";
     ctx.shadowColor = "rgba(56, 189, 248, 0.7)";
     ctx.shadowBlur = 18;
-    ctx.fillText("⚡ JET LASER ⚡", this.width / 2, 92);
+    ctx.fillText("⚡ JET LASER ⚡", this.width / 2, 102);
     ctx.shadowBlur = 0;
 
     ctx.font = "600 20px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillStyle = "#e2e8f0";
-    ctx.fillText("Choose Your Pilot & Launch!", this.width / 2, 134);
+    ctx.fillText("Choose Your Pilot & Launch!", this.width / 2, 148);
 
     const cards = this._getPilotCardRects();
     cards.forEach((card, idx) => {
@@ -2190,18 +2118,18 @@ class JetLaserGame {
     ctx.fillStyle = "#bae6fd";
     ctx.font = "bold 14.5px -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.fillText(
-      `◀ / ▶  Choose Pilot   ·   P  Switch Planet   ·   1–5  Level   ·   SPACE / ENTER  Launch!`,
+      `◀ / ▶  Choose Pilot   ·   SPACE / ENTER  Launch Campaign!`,
       this.width / 2,
-      488
+      452
     );
 
     ctx.fillStyle = "#94a3b8";
     ctx.font = "12.5px -apple-system, BlinkMacSystemFont, sans-serif";
-    const footerDesc =
-      this.selectedPlanetId === "shelin"
-        ? "Planet Shelin: Battle Solar Wobblers, Diamond Fangs & Tentacle Jellies to defeat Big Boss SNOOLO!"
-        : "Planet Zoola: Battle Stalk-Eye Aliens, Chompers & Pyramid UFOs to defeat Boss KALIGATER!";
-    ctx.fillText(footerDesc, this.width / 2, 514);
+    ctx.fillText(
+      "10-Level Campaign: Battle across Planet Zoola & Planet Shelin to defeat Big Boss SNOOLO!",
+      this.width / 2,
+      486
+    );
     ctx.restore();
   }
 
@@ -2880,7 +2808,7 @@ class JetLaserGame {
     const actionPrompt = !won
       ? "Press SPACE or ENTER to Try Again   ·   Press O to Switch Pilot"
       : isCampaignFinale
-        ? "Press SPACE / ENTER to Play Again   ·   P : Switch Planet"
+        ? "Press SPACE / ENTER to Play Again   ·   O : Switch Pilot"
         : isPlanetFinale
           ? `Press SPACE or ENTER to Fly to ${nextLvl.planet}!   ·   R : Replay`
           : `Press SPACE or ENTER to ${isMarsBike ? "Ride" : "Drive"} to Level ${this.currentLevel.number + 1}!   ·   R : Replay`;
@@ -2888,7 +2816,7 @@ class JetLaserGame {
 
     ctx.fillStyle = "#94a3b8";
     ctx.font = "13px -apple-system, BlinkMacSystemFont, sans-serif";
-    ctx.fillText("P : Switch Planet   ·   1–5 : Level   ·   M : Mute Sound", this.width / 2, by + 182);
+    ctx.fillText("R : Replay Current Level   ·   O : Switch Pilot   ·   M : Mute Sound", this.width / 2, by + 182);
     ctx.restore();
   }
 }

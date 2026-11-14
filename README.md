@@ -1,6 +1,6 @@
 # ⚡ Jet Laser
 
-A side-scrolling HTML5 jetpack & laser adventure across **Planet Zoola** and **Planet Shelin**!
+A 10-level side-scrolling HTML5 jetpack & laser campaign across **Planet Zoola** and **Planet Shelin**!
 
 👉 **[Play Live in Your Browser: https://cbibby.github.io/jet-laser/](https://cbibby.github.io/jet-laser/)**
 
@@ -16,8 +16,6 @@ A side-scrolling HTML5 jetpack & laser adventure across **Planet Zoola** and **P
 | `◀` / `▶` (or `A` / `D`) | Run & Steer |
 | `▲` (or `W`) | Fire Twin-Cylinder Jetpack |
 | `Space` | Shoot Laser Blaster (or shatter Ice!) |
-| `P` | Switch Planet (Planet Zoola / Planet Shelin) |
-| `1` – `5` | Jump to Level 1–5 on Active Planet |
-| `O` | Switch Pilot |
-| `R` | Restart Level |
+| `O` | Return to Title / Switch Pilot |
+| `R` | Restart Current Level |
 | `M` | Mute / Unmute Sound |
